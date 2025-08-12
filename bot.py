@@ -16,7 +16,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
-PAYMENT_SERVER_URL = "https://mc-hospital-bot.up.railway.app"  # Your Flask server URL
+PAYMENT_SERVER_URL = "http://127.0.0.1:5000"  # Your Flask server URL
 
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT", 3306))  # default to 3306 if not set
@@ -369,18 +369,8 @@ def handle_fallback(message):
 
 
 if __name__ == "__main__":
-
-    import os
-    import telebot
-
-    BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    bot = telebot.TeleBot(BOT_TOKEN)
-
-    # all your bot handlers here
-
-    print("Bot polling started...")
+    print("Bot started...")
     bot.infinity_polling()
-
 
 
 
