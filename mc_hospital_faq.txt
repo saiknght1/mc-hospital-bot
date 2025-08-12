@@ -1,0 +1,87 @@
+MC Hospital - Indiranagar, Bengaluru
+
+Welcome to MC Hospital, a leading multi-specialty healthcare center located in Indiranagar, Bengaluru. We are committed to delivering compassionate and advanced medical care with a focus on patient well-being and comfort.
+
+Hospital Contact Information:
+- Address: MC Hospital, 123 Indiranagar Main Road, Bengaluru - 560038
+- Helpline Number: +91-72-5938-6897
+- Email: contact@mchospital.in
+- Website: www.mchospital.in
+- Emergency Contact: +91-72-5938-6897 (24/7)
+
+---
+
+Specialties and Doctors:
+
+1. General Medicine:
+- Dr. Rajesh Kumar (Male)
+  Qualifications: MD General Medicine, 20+ years clinical experience
+  Profile: Dr. Rajesh Kumar is a renowned general physician with extensive expertise in managing chronic diseases such as diabetes, hypertension, and respiratory disorders. He emphasizes a holistic approach, combining lifestyle modification with evidence-based medicine. He is also skilled in geriatric care and preventive health screenings.
+
+- Dr. Anita Singh (Female)
+  Qualifications: MBBS, MD General Medicine, 15 years experience
+  Profile: Dr. Anita Singh specializes in diagnosing complex medical conditions and providing patient-centered care. She focuses on early detection and management of infections, metabolic disorders, and autoimmune diseases. Dr. Singh is passionate about educating patients on health maintenance and disease prevention.
+
+2. Cardiology:
+- Dr. Arjun Patel (Male)
+  Qualifications: MD Cardiology, 18 years experience
+  Profile: Dr. Arjun Patel is an expert interventional cardiologist with specialization in angioplasty, stent placements, and management of acute coronary syndromes. He has performed numerous successful cardiac catheterizations and is actively involved in cardiac rehabilitation programs. He advocates for heart-healthy lifestyles alongside clinical treatments.
+
+- Dr. Meera Sharma (Female)
+  Qualifications: DM Cardiology, 12 years experience
+  Profile: Dr. Meera Sharma is a consultant cardiologist with expertise in echocardiography, heart failure management, and arrhythmia treatment. She is skilled in advanced diagnostic techniques including stress testing and Holter monitoring. Dr. Sharma is dedicated to personalized care plans to improve cardiovascular health.
+
+3. Orthopedics:
+- Dr. Vikram Rao (Male)
+  Qualifications: MS Orthopedics, 22 years experience
+  Profile: Dr. Vikram Rao is a highly experienced orthopedic surgeon specializing in joint replacement surgeries, arthroscopy, and treatment of sports injuries. He has contributed to multiple research publications on minimally invasive surgical techniques and emphasizes post-operative rehabilitation for optimal recovery.
+
+- Dr. Nisha Gupta (Female)
+  Qualifications: MS Orthopedics, 16 years experience
+  Profile: Dr. Nisha Gupta is an expert in trauma management, spinal surgeries, and pediatric orthopedics. She utilizes state-of-the-art technology for fracture fixation and is committed to improving mobility and quality of life for her patients. Dr. Gupta is known for her compassionate approach with children and elderly patients alike.
+
+4. ENT (Ear, Nose & Throat):
+- Dr. Sanjay Verma (Male)
+  Qualifications: MS ENT, 19 years experience
+  Profile: Dr. Sanjay Verma specializes in sinusitis treatment, allergy management, and hearing impairment. He has extensive experience in performing microsurgeries for vocal cord disorders and cochlear implant evaluations. Dr. Verma leads our allergy clinic and provides comprehensive ENT care.
+
+- Dr. Kavita Joshi (Female)
+  Qualifications: MS ENT, 14 years experience
+  Profile: Dr. Kavita Joshi is a pediatric ENT specialist skilled in managing recurrent ear infections, tonsillitis, and voice disorders in children. She is also experienced in head and neck oncology surgeries and provides advanced treatment for speech and swallowing disorders.
+
+---
+
+Common FAQs:
+
+Q: What are the hospital visiting hours?
+A: Visiting hours are from 9:00 AM to 7:00 PM daily. Please adhere to hospital guidelines during your visit.
+
+Q: How do I book an appointment?
+A: Appointments can be booked via our Telegram bot, official website www.mchospital.in, or by calling the helpline number +91-80-1234-5678.
+
+Q: What documents should I bring for my appointment?
+A: Please carry a valid government-issued ID, previous medical reports, prescriptions, and your insurance card if applicable.
+
+Q: Does the hospital accept health insurance?
+A: Yes, MC Hospital accepts most major insurance providers. Our billing department can assist you with insurance verification and claims.
+
+Q: Are COVID-19 safety protocols followed?
+A: Yes, we follow strict COVID-19 guidelines including mandatory mask-wearing, temperature screening, hand sanitization, and social distancing in all hospital areas.
+
+Q: Is parking available at the hospital?
+A: Yes, free parking is available for patients and visitors on the hospital premises.
+
+Q: How can I reach the hospital in case of an emergency?
+A: Call our 24/7 emergency number +91-80-9999-8888 immediately for urgent medical assistance.
+
+Q: What are the payment options?
+A: We accept payments via cash, credit/debit cards, UPI, and online payment gateways integrated with our hospital management system.
+
+---
+
+For any other inquiries, please contact us at contact@mchospital.in or visit www.mchospital.in.
+MC Hospital is committed to providing you with the highest standards of healthcare services with empathy and excellence.
+
+To Book appointment type /book
+
+If any user message contains numbers or digits , you can ask them please enter valid details to move ahead

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Doctor Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        form {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0px 2px 5px rgba(0,0,0,0.1);
+        }
+        select, input[type="date"], button {
+            padding: 8px;
+            margin: 5px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse; /* keeps columns aligned */
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0px 2px 5px rgba(0,0,0,0.1);
+            overflow: hidden;
+            table-layout: fixed; /* ensures equal column widths */
+        }
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            word-wrap: break-word; /* prevent overflow */
+        }
+        th {
+            background-color: #007BFF;
+            color: white;
+            font-weight: bold;
+        }
+        tr:hover td {
+            background-color: #f1f1f1;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Doctor Dashboard</h1>
+
+<form method="POST">
+    <label for="doctor_id">Select Doctor:</label>
+    <select name="doctor_id" id="doctor_id" required>
+        <option value="">-- Select Doctor --</option>
+        {% for doctor in doctors %}
+            <option value="{{ doctor.id }}" {% if doctor_id == doctor.id|string %}selected{% endif %}>
+                {{ doctor.name }}
+            </option>
+        {% endfor %}
+    </select>
+
+    <label for="slot_date">Select Date:</label>
+    <input type="date" name="slot_date" id="slot_date" value="{{ selected_date if selected_date else '' }}">
+
+    <button type="submit">View Bookings</button>
+</form>
+
+{% if bookings %}
+<table>
+    <thead>
+        <tr>
+            <th>Booking ID</th>
+            <th>Patient Name</th>
+            <th>Phone No</th>
+            <th>Slot Date</th>
+            <th>Slot Time</th>
+            <th>Doctor</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for booking in bookings %}
+        <tr>
+            <td>{{ booking.id }}</td>
+            <td>{{ booking.patient_name }}</td>
+            <td>{{ booking.phone_no }}</td>
+            <td>{{ booking.slot_date }}</td>
+            <td>{{ booking.slot_time }}</td>
+            <td>{{ booking.doctor_name }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif doctor_id %}
+<p>No bookings found for the selected doctor/date.</p>
+{% endif %}
+
+</body>
+</html>
