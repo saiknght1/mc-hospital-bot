@@ -1,7 +1,8 @@
-#payment server
-from flask import Flask, request, render_template_string
-import pymysql
+import os
 import telebot
+import pymysql
+from flask import Flask, render_template, render_template_string, request
+
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -123,5 +124,4 @@ def home():
     return "<h2>Payment Server is Running</h2>"
 
 if __name__ == "__main__":
-    print("Flask server started...")
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    app.run(host="0.0.0.0", port=5000)
