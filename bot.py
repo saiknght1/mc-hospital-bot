@@ -369,8 +369,18 @@ def handle_fallback(message):
 
 
 if __name__ == "__main__":
-    print("Bot started...")
+   if __name__ == "__main__":
+    import os
+    import telebot
+
+    BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    bot = telebot.TeleBot(BOT_TOKEN)
+
+    # all your bot handlers here
+
+    print("Bot polling started...")
     bot.infinity_polling()
+
 
 
 
