@@ -129,8 +129,8 @@ def do_stop(chat_id):
 def send_welcome(message):
     bot.reply_to(
         message,
-        "Welcome to Hospital Booking Bot!\n"
-        "Type /book to start appointment booking, or just ask your questions."
+        "Hi Im, MC Hospital Bot!\n"
+        "Type /book to start appointment booking, or just type your queries, I will answer them."
     )
 
 @bot.message_handler(
