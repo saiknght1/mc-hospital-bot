@@ -58,15 +58,15 @@ try:
     loader = TextLoader(FAQ_DOC_PATH, encoding="utf-8")
     docs = loader.load()
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
     docs_split = splitter.split_documents(docs)
 
     embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
     vectorstore = FAISS.from_documents(docs_split, embeddings)
 
     retriever = vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": 6, "fetch_k": 10}
+        search_type="similarity",
+        search_kwargs={"k": 4}
     )
 
     # Store separate memories for each user
