@@ -1,26 +1,31 @@
-# telegrambot logic
+# telegrambot logic with RAG memory + better retrieval
 import telebot
 import pymysql
 from datetime import datetime
 import os
+from collections import defaultdict
+from dotenv import load_dotenv
+
+# LangChain imports
 from langchain.chat_models import ChatOpenAI
-from langchain.chains import RetrievalQA
+from langchain.chains import ConversationalRetrievalChain
 from langchain.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from dotenv import load_dotenv
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import PromptTemplate
 
 load_dotenv()
-booking_done = {}
 
+booking_done = {}
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
 PAYMENT_SERVER_URL = "https://mc-hospital-bot.up.railway.app"  # Your Flask server URL
 
 DB_HOST = os.getenv("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT", 3306))  # default to 3306 if not set
+DB_PORT = int(os.getenv("DB_PORT", 3306))
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
@@ -46,15 +51,8 @@ valid_options = {} # chat_id -> list of valid inputs for current step
 KEYWORDS = ["reschedule", "cancel", "refund", "money back", "Cancel", "Reschedule"]
 
 
-# ====== HELPER: Simple FAQ detector ======
-def contains_keywords(text):
-    text = text.lower()  # make case-insensitive
-    KEYWORDS = ["reschedule", "cancel", "refund", "money back"]
-    return any(keyword in text for keyword in KEYWORDS)
-
-
-# ====== RAG SETUP: Load FAQ from txt dynamically ======
-FAQ_DOC_PATH = "mc_hospital_faq.txt"  # your FAQ document file path
+# ====== RAG SETUP with per-user memory ======
+FAQ_DOC_PATH = "mc_hospital_faq.txt"
 
 try:
     loader = TextLoader(FAQ_DOC_PATH, encoding="utf-8")
@@ -66,23 +64,77 @@ try:
     embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
     vectorstore = FAISS.from_documents(docs_split, embeddings)
 
-    llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-4o", temperature=0)
-    qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 6, "fetch_k": 10}
+    )
+
+    # Store separate memories for each user
+    user_memories = defaultdict(lambda: ConversationBufferMemory(
+        memory_key="chat_history",
+        return_messages=True
+    ))
+
+    # Friendly hospital assistant prompt
+    prompt_template = """
+You are a helpful hospital booking assistant.
+Always answer politely and clearly.
+Use only the context below to answer questions. 
+If unsure, say you are not certain and suggest contacting support.
+
+Context:
+{context}
+
+Question: {question}
+Answer:
+"""
+    QA_PROMPT = PromptTemplate.from_template(prompt_template)
+
+    def get_user_qa_chain(chat_id):
+        return ConversationalRetrievalChain.from_llm(
+            llm=ChatOpenAI(
+                openai_api_key=OPENAI_API_KEY,
+                model_name="gpt-4o",
+                temperature=0,
+                max_tokens=400
+            ),
+            retriever=retriever,
+            memory=user_memories[chat_id],
+            combine_docs_chain_kwargs={"prompt": QA_PROMPT}
+        )
+
+    def get_rag_answer(chat_id, question):
+        try:
+            chain = get_user_qa_chain(chat_id)
+            result = chain({"question": question})
+            answer = result["answer"]
+
+            # Fallback if answer is empty or generic
+            if not answer.strip() or "I am not sure" in answer:
+                llm_fallback = ChatOpenAI(
+                    openai_api_key=OPENAI_API_KEY,
+                    model_name="gpt-3.5-turbo",
+                    temperature=0.5
+                )
+                answer = llm_fallback.predict(
+                    f"You are a hospital assistant. The patient asked: '{question}'. "
+                    "Answer politely and concisely."
+                )
+            return answer
+        except Exception as e:
+            print("Error in RAG answer:", e)
+            return "Sorry, I could not find an answer to your question."
 
 except Exception as e:
     print("Error setting up RAG FAQ system:", e)
-    qa_chain = None
-
-
-def get_rag_answer(question):
-    if not qa_chain:
+    def get_rag_answer(*_):
         return "Sorry, FAQ system is not available right now."
-    try:
-        answer = qa_chain.run(question)
-        return answer
-    except Exception as e:
-        print("Error in RAG answer:", e)
-        return "Sorry, I could not find an answer to your question."
+
+
+# ====== Keyword helper ======
+def contains_keywords(text):
+    text = text.lower()
+    return any(keyword in text for keyword in ["reschedule", "cancel", "refund", "money back"])
 
 
 @bot.message_handler(commands=["start"])
