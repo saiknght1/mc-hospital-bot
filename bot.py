@@ -1,10 +1,11 @@
-# telegrambot logic with RAG memory + better retrieval
+# telegrambot logic with RAG memory + better retrieval + back/stop navigation
 import telebot
 import pymysql
 from datetime import datetime
 import os
 from collections import defaultdict
 from dotenv import load_dotenv
+from urllib.parse import quote_plus
 
 # LangChain imports
 from langchain.chat_models import ChatOpenAI
@@ -22,7 +23,7 @@ booking_done = {}
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
-PAYMENT_SERVER_URL = "https://mc-hospital-bot.up.railway.app"  # Your Flask server URL
+PAYMENT_SERVER_URL = os.getenv("PAYMENT_SERVER_URL", "https://mc-hospital-bot.up.railway.app")
 
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT", 3306))
@@ -31,7 +32,6 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 
 def get_db_connection():
     return pymysql.connect(
@@ -43,43 +43,32 @@ def get_db_connection():
         cursorclass=pymysql.cursors.DictCursor
     )
 
-
 # ====== STATE MANAGEMENT ======
 user_state = {}    # chat_id -> state
-TEMP_BOOKING = {}  # chat_id -> booking info
+TEMP_BOOKING = {}  # chat_id -> booking info across steps
 valid_options = {} # chat_id -> list of valid inputs for current step
-KEYWORDS = ["reschedule", "cancel", "refund", "money back", "Cancel", "Reschedule"]
+KEYWORDS = ["reschedule", "cancel", "refund", "money back", "stop", "Reschedule"]
 
+stop_MSG = "❌ Booking process stopped. You can type /book to start again."
+NAV_HINT = "\n💡 You can type 'back' to go to the previous step or type 'stop' to stop."
 
 # ====== RAG SETUP with per-user memory ======
 FAQ_DOC_PATH = "mc_hospital_faq.txt"
 
-try:
+def setup_rag():
     loader = TextLoader(FAQ_DOC_PATH, encoding="utf-8")
     docs = loader.load()
-
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     docs_split = splitter.split_documents(docs)
-
     embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
     vectorstore = FAISS.from_documents(docs_split, embeddings)
+    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 6, "fetch_k": 10})
+    user_memories = defaultdict(lambda: ConversationBufferMemory(memory_key="chat_history", return_messages=True))
 
-    retriever = vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 6, "fetch_k": 10}
-    )
-
-    # Store separate memories for each user
-    user_memories = defaultdict(lambda: ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    ))
-
-    # Friendly hospital assistant prompt
     prompt_template = """
 You are a helpful hospital booking assistant.
 Always answer politely and clearly.
-Use only the context below to answer questions. 
+Use only the context below to answer questions.
 If unsure, say you are not certain and suggest contacting support.
 
 Context:
@@ -103,34 +92,38 @@ Answer:
             combine_docs_chain_kwargs={"prompt": QA_PROMPT}
         )
 
-    def get_rag_answer(chat_id, question):
+    def get_rag_answer(chat_id, question_text):
         try:
             chain = get_user_qa_chain(chat_id)
-            result = chain({"question": question})
-            answer = result["answer"]
-
-            # Fallback if answer is empty or generic
-            if not answer.strip() or "I am not sure"  or "not certain" in answer:
-                bot.reply_to(
-                    question,
-                    "For such queries please connect with our customer support at the helpline number for MC Hospital is +91-72-5938-6897, and the email address is contact@mchospital.in."
-                )
+            result = chain({"question": question_text})
+            answer = result.get("answer", "").strip()
+            # Correct fallback check
+            if (not answer) or ("i am not sure" in answer.lower()) or ("not certain" in answer.lower()):
+                return ("For such queries please connect with our customer support at the helpline "
+                        "number +91-72-5938-6897, email: contact@mchospital.in.")
             return answer
         except Exception as e:
             print("Error in RAG answer:", e)
             return "Sorry, I could not find an answer to your question."
 
+    return get_rag_answer
+
+try:
+    get_rag_answer = setup_rag()
 except Exception as e:
     print("Error setting up RAG FAQ system:", e)
     def get_rag_answer(*_):
         return "Sorry, FAQ system is not available right now."
 
-
 # ====== Keyword helper ======
 def contains_keywords(text):
-    text = text.lower()
-    return any(keyword in text for keyword in ["reschedule", "cancel", "refund", "money back"])
+    return any(keyword in text.lower() for keyword in ["reschedule", "cancel", "refund", "money back"])
 
+# ====== General stop utility ======
+def do_stop(chat_id):
+    user_state.pop(chat_id, None)
+    TEMP_BOOKING.pop(chat_id, None)
+    valid_options.pop(chat_id, None)
 
 # ====== BOT HANDLERS ======
 @bot.message_handler(commands=["start"])
@@ -138,14 +131,13 @@ def send_welcome(message):
     bot.reply_to(
         message,
         "Welcome to Hospital Booking Bot!\n"
-        "Type /book to start appointment booking, "
-        "or just ask your questions."
+        "Type /book to start appointment booking, or just ask your questions."
     )
-
 
 @bot.message_handler(
     func=lambda m: (
         not user_state.get(m.chat.id)
+        and m.text
         and m.text.strip().lower() != "/book"
         and all(keyword not in m.text.strip().lower() for keyword in KEYWORDS)
     )
@@ -157,175 +149,382 @@ def handle_faq(message):
     if not booking_done.get(chat_id, False):
         bot.reply_to(message, "You can type /book to start with Appointment Booking Process")
 
-
+# ==========================
+#      BOOKING FLOW
+# ==========================
 @bot.message_handler(commands=["book"])
 def start_booking(message):
     chat_id = message.chat.id
     booking_done[chat_id] = False
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cur:
-            cur.execute("SELECT id, name FROM specialties")
-            specialities = cur.fetchall()
-        conn.close()
+    TEMP_BOOKING[chat_id] = {}
+    if  user_state.get(chat_id) == "paid":
 
-        reply = "Please choose a speciality by typing its ID:\n"
-        speciality_list = []
-        for sp in specialities:
-            reply += f"{sp['id']}. {sp['name']}\n"
-            speciality_list.append(str(sp['id']))
+        try:
 
-        bot.reply_to(message, reply)
-        user_state[chat_id] = "choosing_speciality"
-        TEMP_BOOKING[chat_id] = {}
-        valid_options[chat_id] = speciality_list
-    except Exception as e:
-        print(f"Error in start_booking: {e}")
-        bot.reply_to(message, "Sorry, something went wrong. Please try again later.")
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, name FROM specialties")
+                specialties = cur.fetchall()
+            conn.close()
+
+            if not specialties:
+                bot.reply_to(message, "No specialties found. Please try again later.")
+                return
+
+            reply = "You already have an Appointment booked \nYou can continue booking a new one\nPlease choose a speciality by typing its ID:\n"
+            speciality_list = []
+            for sp in specialties:
+                reply += f"{sp['id']}. {sp['name']}\n"
+                speciality_list.append(str(sp['id']))
+
+            bot.reply_to(message, reply + "\n💡 Type 'stop' to stop the booking process.")
+            user_state[chat_id] = "choosing_speciality"
+            valid_options[chat_id] = speciality_list
+        except Exception as e:
+            print(f"Error in start_booking: {e}")
+            bot.reply_to(message, "Sorry, something went wrong. Please try again later.")
+    else:
+        try:
+
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, name FROM specialties")
+                specialties = cur.fetchall()
+            conn.close()
+
+            if not specialties:
+                bot.reply_to(message, "No specialties found. Please try again later.")
+                return
+
+            reply = "Please choose a speciality by typing its ID:\n"
+            speciality_list = []
+            for sp in specialties:
+                reply += f"{sp['id']}. {sp['name']}\n"
+                speciality_list.append(str(sp['id']))
+
+            bot.reply_to(message, reply + "\n💡 Type 'stop' to stop the booking process.")
+            user_state[chat_id] = "choosing_speciality"
+            valid_options[chat_id] = speciality_list
+        except Exception as e:
+            print(f"Error in start_booking: {e}")
+            bot.reply_to(message, "Sorry, something went wrong. Please try again later.")
 
 
+
+
+# --- choosing_speciality ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "choosing_speciality")
 def handle_choosing_speciality(message):
     chat_id = message.chat.id
-    text = message.text.strip().rstrip(".")
+    text = (message.text or "").strip().rstrip(".")
+
+    if text.lower() == "stop":
+        do_stop(chat_id)
+        bot.reply_to(message, stop_MSG)
+        return
+
     if text in valid_options.get(chat_id, []):
         TEMP_BOOKING[chat_id]["speciality"] = text
         try:
             conn = get_db_connection()
             with conn.cursor() as cur:
-                cur.execute("SELECT id, name, fees FROM doctors WHERE specialty_id = %s", (text,))  # UPDATED: also fetching fees
+                cur.execute("SELECT id, name, fees FROM doctors WHERE specialty_id = %s", (text,))
                 doctors = cur.fetchall()
             conn.close()
+
             if not doctors:
-                bot.reply_to(message, "No doctors found for this speciality.")
+                bot.reply_to(message, "No doctors found for this speciality. Type 'back' to reselect or 'stop'.")
                 return
+
             reply = "Please choose a doctor by typing their ID:\n"
             doctor_ids = []
             for doc in doctors:
-                reply += f"{doc['id']}. {doc['name']} — Fee: ₹{doc['fees']}\n"  # UPDATED: show fee here
+                reply += f"{doc['id']}. {doc['name']} — Fee: ₹{doc['fees']}\n"
                 doctor_ids.append(str(doc['id']))
-            bot.reply_to(message, reply)
+
+            bot.reply_to(message, reply + NAV_HINT)
             user_state[chat_id] = "choosing_doctor"
             valid_options[chat_id] = doctor_ids
         except Exception as e:
             print(f"Error fetching doctors: {e}")
             bot.reply_to(message, "Sorry, something went wrong.")
     else:
+        # Back not applicable here; give RAG assist
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid speciality ID.")
+        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid speciality ID or type 'stop' to stop.")
 
-
+# --- choosing_doctor ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "choosing_doctor")
 def handle_choosing_doctor(message):
     chat_id = message.chat.id
-    text = message.text.strip().rstrip(".")
+    text = (message.text or "").strip().rstrip(".")
+
+    if text.lower() == "stop":
+        do_stop(chat_id)
+        bot.reply_to(message, stop_MSG)
+        return
+
+    if text.lower() == "back":
+        # Re-list specialties
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, name FROM specialties")
+                specialties = cur.fetchall()
+            conn.close()
+
+            reply = "Please choose a speciality by typing its ID:\n"
+            speciality_list = []
+            for sp in specialties:
+                reply += f"{sp['id']}. {sp['name']}\n"
+                speciality_list.append(str(sp['id']))
+            user_state[chat_id] = "choosing_speciality"
+            valid_options[chat_id] = speciality_list
+            TEMP_BOOKING[chat_id].pop("speciality", None)
+            bot.reply_to(message, reply + "Please type 'stop' to stop booking process")
+        except Exception as e:
+            print(f"Error reloading specialties: {e}")
+            bot.reply_to(message, "Sorry, something went wrong.")
+        return
+
     if text in valid_options.get(chat_id, []):
         TEMP_BOOKING[chat_id]["doctor_id"] = int(text)
-
-        # NEW: Fetch and store selected doctor's fees
         try:
             conn = get_db_connection()
             with conn.cursor() as cur:
                 cur.execute("SELECT fees, name FROM doctors WHERE id=%s", (text,))
                 result = cur.fetchone()
-                if result:
-                    TEMP_BOOKING[chat_id]["fees"] = result["fees"]
-                    TEMP_BOOKING[chat_id]["doc_name"] = result["name"]
-                    bot.reply_to(message, f"Consultation Fee for this doctor: ₹{result['fees']}")
             conn.close()
+            if result:
+                TEMP_BOOKING[chat_id]["fees"] = result["fees"]
+                TEMP_BOOKING[chat_id]["doc_name"] = result["name"]
+                bot.reply_to(message, f"Consultation Fee for this doctor: ₹{result['fees']}")
         except Exception as e:
             print(f"Error fetching doctor fees: {e}")
 
-        bot.reply_to(message, "Please enter the date you want to book (YYYY-MM-DD):")
+        bot.reply_to(message, "Please enter the date you want to book (YYYY-MM-DD):" + NAV_HINT)
         user_state[chat_id] = "choosing_date"
         valid_options.pop(chat_id, None)
     else:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid Doctor ID.")
+        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid Doctor ID or type 'back'/'stop'.")
 
-
+# --- choosing_date ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "choosing_date")
 def handle_choosing_date(message):
     chat_id = message.chat.id
-    text = message.text.strip().rstrip(".")
+    text = (message.text or "").strip().rstrip(".")
+
+    if text.lower() == "stop":
+        do_stop(chat_id)
+        bot.reply_to(message, stop_MSG)
+        return
+
+    if text.lower() == "back":
+        # Re-list doctors for selected speciality
+        speciality = TEMP_BOOKING[chat_id].get("speciality")
+        if not speciality:
+            # fallback: go to choosing_speciality
+            start_booking(message)
+            return
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, name, fees FROM doctors WHERE specialty_id = %s", (speciality,))
+                doctors = cur.fetchall()
+            conn.close()
+
+            reply = "Please choose a doctor by typing their ID:\n"
+            doctor_ids = []
+            for doc in doctors:
+                reply += f"{doc['id']}. {doc['name']} — Fee: ₹{doc['fees']}\n"
+                doctor_ids.append(str(doc['id']))
+            user_state[chat_id] = "choosing_doctor"
+            valid_options[chat_id] = doctor_ids
+            TEMP_BOOKING[chat_id].pop("doctor_id", None)
+            TEMP_BOOKING[chat_id].pop("fees", None)
+            TEMP_BOOKING[chat_id].pop("doc_name", None)
+            bot.reply_to(message, reply + NAV_HINT)
+        except Exception as e:
+            print(f"Error fetching doctors on back: {e}")
+            bot.reply_to(message, "Sorry, something went wrong.")
+        return
+
+    # Validate date
     try:
         booking_date = datetime.strptime(text, "%Y-%m-%d").date()
         TEMP_BOOKING[chat_id]["slot_date"] = booking_date
         conn = get_db_connection()
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, slot_time 
-                FROM doctor_slots 
+                SELECT id, slot_time
+                FROM doctor_slots
                 WHERE doctor_id=%s AND slot_date=%s AND is_booked=0
             """, (TEMP_BOOKING[chat_id]["doctor_id"], booking_date))
             slots = cur.fetchall()
         conn.close()
         if not slots:
-            bot.reply_to(message, "No available slots on this date.")
+            bot.reply_to(message, "No available slots on this date. Try another date or type 'back' or 'stop'.")
             return
+
         reply = "Select a slot by typing its ID:\n"
         slot_ids = []
         for s in slots:
             reply += f"{s['id']}. {s['slot_time']}\n"
             slot_ids.append(str(s['id']))
-        bot.reply_to(message, reply)
+        bot.reply_to(message, reply + NAV_HINT)
         user_state[chat_id] = "choosing_slot"
         valid_options[chat_id] = slot_ids
     except ValueError:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease use YYYY-MM-DD format.")
+        bot.reply_to(message, f"💡 {answer}\nPlease use YYYY-MM-DD format to continue booking or type 'back'/'stop'.")
 
-
+# --- choosing_slot ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "choosing_slot")
 def handle_choosing_slot(message):
     chat_id = message.chat.id
-    text = message.text.strip().rstrip(".")
+    text = (message.text or "").strip().rstrip(".")
+
+    if text.lower() == "stop":
+        do_stop(chat_id)
+        bot.reply_to(message, stop_MSG)
+        return
+
+    if text.lower() == "back":
+        # Ask for date again
+        user_state[chat_id] = "choosing_date"
+        valid_options.pop(chat_id, None)
+        TEMP_BOOKING[chat_id].pop("slot_id", None)
+        bot.reply_to(message, "Please enter the date you want to book (YYYY-MM-DD):" + NAV_HINT)
+        return
+
     if text in valid_options.get(chat_id, []):
         TEMP_BOOKING[chat_id]["slot_id"] = int(text)
-        bot.reply_to(message, "Please enter your full name:")
+        bot.reply_to(message, "Please enter your full name:" + NAV_HINT)
         user_state[chat_id] = "entering_name"
+        valid_options.pop(chat_id, None)
     else:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid Slot ID.")
+        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid Slot ID or type 'back'/'stop'.")
 
-
+# --- entering_name ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "entering_name")
 def handle_entering_name(message):
     chat_id = message.chat.id
-    TEMP_BOOKING[chat_id]["name"] = message.text.strip()
-    bot.reply_to(message, "Please enter your 10 digit phone number:")
+    text = (message.text or "").strip()
+
+    if text.lower() == "stop":
+        do_stop(chat_id)
+        bot.reply_to(message, stop_MSG)
+        return
+
+    if text.lower() == "back":
+        # Re-list slots for doctor/date
+        doctor_id = TEMP_BOOKING[chat_id].get("doctor_id")
+        booking_date = TEMP_BOOKING[chat_id].get("slot_date")
+        if not (doctor_id and booking_date):
+            user_state[chat_id] = "choosing_date"
+            bot.reply_to(message, "Please enter the date you want to book (YYYY-MM-DD):" + NAV_HINT)
+            return
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, slot_time
+                    FROM doctor_slots
+                    WHERE doctor_id=%s AND slot_date=%s AND is_booked=0
+                """, (doctor_id, booking_date))
+                slots = cur.fetchall()
+            conn.close()
+            if not slots:
+                user_state[chat_id] = "choosing_date"
+                bot.reply_to(message, "No available slots on this date. Enter another date (YYYY-MM-DD):" + NAV_HINT)
+                return
+            reply = "Select a slot by typing its ID:\n"
+            slot_ids = []
+            for s in slots:
+                reply += f"{s['id']}. {s['slot_time']}\n"
+                slot_ids.append(str(s['id']))
+            user_state[chat_id] = "choosing_slot"
+            valid_options[chat_id] = slot_ids
+            TEMP_BOOKING[chat_id].pop("slot_id", None)
+            bot.reply_to(message, reply + NAV_HINT)
+        except Exception as e:
+            print(f"Error fetching slots on back: {e}")
+            bot.reply_to(message, "Sorry, something went wrong.")
+        return
+
+    # Save name
+    TEMP_BOOKING[chat_id]["name"] = text
+    bot.reply_to(message, "Please enter your 10 digit phone number:" + NAV_HINT)
     user_state[chat_id] = "entering_phone"
 
-
+# --- entering_phone ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "entering_phone")
 def handle_entering_phone(message):
     chat_id = message.chat.id
-    text = message.text.strip().rstrip(".")
+    text = (message.text or "").strip().rstrip(".")
+
+    if text.lower() == "stop":
+        do_stop(chat_id)
+        bot.reply_to(message, stop_MSG)
+        return
+
+    if text.lower() == "back":
+        user_state[chat_id] = "entering_name"
+        bot.reply_to(message, "Please enter your full name:" + NAV_HINT)
+        return
+
     if text.isdigit() and len(text) == 10:
         TEMP_BOOKING[chat_id]["phone_no"] = text
         doctor_id = TEMP_BOOKING[chat_id]["doctor_id"]
         slot_id = TEMP_BOOKING[chat_id]["slot_id"]
-        # UPDATED: Send fee in payment link as query param
-        payment_url = f"{PAYMENT_SERVER_URL}/pay/{chat_id}/{doctor_id}/{slot_id}?name={TEMP_BOOKING[chat_id]['name']}&phone={TEMP_BOOKING[chat_id]['phone_no']}&fee={TEMP_BOOKING[chat_id].get('fees',0)}"
-        bot.reply_to(message, f"Doctor: {TEMP_BOOKING[chat_id].get('doc_name')}\n Consultation Fee: ₹{TEMP_BOOKING[chat_id].get('fees',0)}\n💳 Please complete your payment here: {payment_url}")
-        user_state.pop(chat_id, None)
+
+        fee = TEMP_BOOKING[chat_id].get("fees", 0)
+        name_q = quote_plus(TEMP_BOOKING[chat_id].get("name", ""))
+        phone_q = quote_plus(TEMP_BOOKING[chat_id].get("phone_no", ""))
+        fee_q = quote_plus(str(fee))
+
+        payment_url = f"{PAYMENT_SERVER_URL}/pay/{chat_id}/{doctor_id}/{slot_id}?name={name_q}&phone={phone_q}&fee={fee_q}"
+        bot.reply_to(
+            message,
+            f"Doctor: {TEMP_BOOKING[chat_id].get('doc_name')}\n"
+            f"Consultation Fee: ₹{fee}\n"
+            f"💳 Please complete your payment here: {payment_url}"
+        )
+        user_state[chat_id] = "paid"
         valid_options.pop(chat_id, None)
+        TEMP_BOOKING.pop(chat_id, None)
+        print(user_state[chat_id])
+
     else:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid 10 digit number.")
+        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid 10 digit number or type 'back'/'stop'.")
 
-@bot.message_handler(func=lambda m: contains_keywords(m.text))
+
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "paid")
+def handle_entering_name(message):
+    chat_id = message.chat.id
+    text = (message.text or "").strip()
+    answer = get_rag_answer(chat_id, text)
+    bot.reply_to(message, f"💡 {answer}\nPlease type '/book' to book another appointment or type 'help' to cancel/reschedule appointments" )
+
+
+# ==========================
+#   KEYWORD: contact flow
+# ==========================
+@bot.message_handler(func=lambda m: m.text and contains_keywords(m.text) and user_state.get(m.chat.id) == "paid" )
 def handle_keywords(message):
     bot.send_message(message.chat.id, "📞 Please enter your registered phone number:")
     bot.register_next_step_handler(message, process_phone_number)
 
-
 def process_phone_number(message):
-    phone_verify = message.text.strip()
+    phone_verify = (message.text or "").strip()
     if not phone_verify.isdigit() or len(phone_verify) != 10:
         bot.send_message(message.chat.id, "❌ Please enter a valid 10-digit number:")
         bot.register_next_step_handler(message, process_phone_number)
         return
+    conn = None
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
@@ -344,17 +543,19 @@ def process_phone_number(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"⚠️ An error occurred: {e}")
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
-
+# ==========================
+#       FALLBACK
+# ==========================
 @bot.message_handler(func=lambda m: True)
 def handle_fallback(message):
     chat_id = message.chat.id
     if user_state.get(chat_id):
-        bot.reply_to(message, "Sorry, I didn't understand that. Please follow the instructions above.")
+        bot.reply_to(message, "Sorry, I didn't understand that. Please follow the instructions above." + NAV_HINT)
     else:
         bot.reply_to(message, "I’m not sure how to respond.\n💡 Type /book to book an appointment or ask your questions.")
-
 
 if __name__ == "__main__":
     print("Bot started...")
