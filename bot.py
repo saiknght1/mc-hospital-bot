@@ -58,7 +58,7 @@ try:
     loader = TextLoader(FAQ_DOC_PATH, encoding="utf-8")
     docs = loader.load()
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     docs_split = splitter.split_documents(docs)
 
     embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
