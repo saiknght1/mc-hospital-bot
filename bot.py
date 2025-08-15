@@ -1,4 +1,3 @@
-# telegrambot logic with RAG memory + better retrieval + back/stop navigation
 import telebot
 import pymysql
 from datetime import datetime
