@@ -105,7 +105,7 @@ Answer:
             answer = result["answer"]
 
             # Fallback if answer is empty or generic
-            if not answer.strip() or "I am not sure" in answer:
+            if not answer.strip() or "I am not sure" or "sorry" in answer:
                 llm_fallback = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-3.5-turbo", temperature=0.5)
                 answer = llm_fallback.predict(
                     f"You are a hospital assistant. The patient asked: '{question}'. "
