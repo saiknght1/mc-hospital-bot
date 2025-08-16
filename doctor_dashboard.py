@@ -247,14 +247,14 @@ def start_booking(message):
             if num in seen:
                 continue
             seen.add(num)
-            tag = " (blocked)" if num in blocked_numbers else ""
+            tag = " (Contact Request)" if num in blocked_numbers else ""
             lines.append(f"• {num}{tag}")
 
         bot.reply_to(
             message,
             "These phone numbers are linked to your account:\n\n"
             + "\n".join(lines) +
-            "\n\n👉 Type one of the allowed numbers from above, or enter a NEW 10-digit phone number."
+            "\n\n👉 Type one of the numbers from above which doesnt have a pending contact request, or enter a NEW 10-digit phone number."
         )
 
         user_state[chat_id] = "choosing_phone"
@@ -395,7 +395,7 @@ def handle_choosing_speciality(message):
     else:
         # Back not applicable here; give RAG assist
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid speciality ID to move ahead or type 'stop' to stop the Booking Process.")
+        bot.reply_to(message, f"💡 {answer}\n\nPlease enter a valid speciality ID to move ahead or type 'stop' to stop the Booking Process.")
 
 # --- choosing_doctor ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "choosing_doctor")
@@ -451,7 +451,7 @@ def handle_choosing_doctor(message):
         valid_options.pop(chat_id, None)
     else:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid Doctor ID or type 'back'/'stop'.")
+        bot.reply_to(message, f"💡 {answer}\n\nPlease enter a valid Doctor ID or type 'back'/'stop'.")
 
 # --- choosing_date ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "choosing_date")
@@ -468,7 +468,6 @@ def handle_choosing_date(message):
         # Re-list doctors for selected speciality
         speciality = TEMP_BOOKING[chat_id].get("speciality")
         if not speciality:
-            # fallback: go to choosing_speciality
             start_booking(message)
             return
         try:
@@ -478,7 +477,7 @@ def handle_choosing_date(message):
                 doctors = cur.fetchall()
             conn.close()
 
-            reply = "Please choose a doctor by typing their ID:\n"
+            reply = "Please choose a doctor by typing its ID:\n"
             doctor_ids = []
             for doc in doctors:
                 reply += f"{doc['id']}. {doc['name']} — Fee: ₹{doc['fees']}\n"
@@ -494,19 +493,38 @@ def handle_choosing_date(message):
             bot.reply_to(message, "Sorry, something went wrong.")
         return
 
-    # Validate date
+
     try:
         booking_date = datetime.strptime(text, "%Y-%m-%d").date()
+        today = datetime.now().date()
+        now_time = datetime.now().time()
+
+        # 🚫 Reject past dates
+        if booking_date < today:
+            bot.reply_to(message, "⚠️ You cannot book an appointment in the past.\n\nPlease enter today’s date or a future date (YYYY-MM-DD).")
+            return
+
         TEMP_BOOKING[chat_id]["slot_date"] = booking_date
+
         conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, slot_time
-                FROM doctor_slots
-                WHERE doctor_id=%s AND slot_date=%s AND is_booked=0
-            """, (TEMP_BOOKING[chat_id]["doctor_id"], booking_date))
+            if booking_date == today:
+                # Only allow slots >= current time
+                cur.execute("""
+                    SELECT id, slot_time
+                    FROM doctor_slots
+                    WHERE doctor_id=%s AND slot_date=%s AND is_booked=0 AND slot_time >= %s
+                """, (TEMP_BOOKING[chat_id]["doctor_id"], booking_date, now_time))
+            else:
+                # Future date → allow all free slots
+                cur.execute("""
+                    SELECT id, slot_time
+                    FROM doctor_slots
+                    WHERE doctor_id=%s AND slot_date=%s AND is_booked=0
+                """, (TEMP_BOOKING[chat_id]["doctor_id"], booking_date))
             slots = cur.fetchall()
         conn.close()
+
         if not slots:
             bot.reply_to(message, "No available slots on this date. Try another date or type 'back' or 'stop'.")
             return
@@ -519,9 +537,11 @@ def handle_choosing_date(message):
         bot.reply_to(message, reply + NAV_HINT)
         user_state[chat_id] = "choosing_slot"
         valid_options[chat_id] = slot_ids
+
     except ValueError:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease use YYYY-MM-DD format to continue booking or type 'back'/'stop'.")
+        bot.reply_to(message, f"💡 {answer}\n\nPlease use YYYY-MM-DD format to continue booking or type 'back'/'stop'.")
+
 
 # --- choosing_slot ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "choosing_slot")
@@ -544,31 +564,29 @@ def handle_choosing_slot(message):
 
     if text in valid_options.get(chat_id, []):
         TEMP_BOOKING[chat_id]["slot_id"] = int(text)
-        bot.reply_to(message, "Please enter your full name:" + NAV_HINT)
+        bot.reply_to(message, "Please enter your full name:\n" + NAV_HINT)
         user_state[chat_id] = "entering_name"
         valid_options.pop(chat_id, None)
     else:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid Slot ID or type 'back'/'stop'.")
+        bot.reply_to(message, f"💡 {answer}\n\nPlease enter a valid Slot ID or type 'back'/'stop'.")
 
 # --- entering_name ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "entering_name")
 def handle_entering_name(message):
     chat_id = message.chat.id
     text = (message.text or "").strip()
-
     if text.lower() == "stop":
         do_stop(chat_id)
         bot.reply_to(message, stop_MSG)
         return
-
     if text.lower() == "back":
         # Re-list slots for doctor/date
         doctor_id = TEMP_BOOKING[chat_id].get("doctor_id")
         booking_date = TEMP_BOOKING[chat_id].get("slot_date")
         if not (doctor_id and booking_date):
             user_state[chat_id] = "choosing_date"
-            bot.reply_to(message, "Please enter the date you want to book (YYYY-MM-DD):" + NAV_HINT)
+            bot.reply_to(message, "Please enter the date you want to book (YYYY-MM-DD)\n(Note: Doctors Roster available for booking from 2025-08-19 to 2025-08-31)\n" + NAV_HINT)
             return
         try:
             conn = get_db_connection()
@@ -600,8 +618,34 @@ def handle_entering_name(message):
 
     # Save name
     TEMP_BOOKING[chat_id]["name"] = text
+
+    # --------- PATCH BEGINS HERE ---------
+    # If phone_no is already saved in TEMP_BOOKING (from earlier selection), SKIP asking again
+    phone_already_chosen = TEMP_BOOKING[chat_id].get("phone_no")
+    if phone_already_chosen:
+        doctor_id = TEMP_BOOKING[chat_id]["doctor_id"]
+        slot_id = TEMP_BOOKING[chat_id]["slot_id"]
+        fee = TEMP_BOOKING[chat_id].get("fees", 0)
+        name_q = quote_plus(TEMP_BOOKING[chat_id].get("name", ""))
+        phone_q = quote_plus(phone_already_chosen)
+        fee_q = quote_plus(str(fee))
+        payment_url = f"{PAYMENT_SERVER_URL}/pay/{chat_id}/{doctor_id}/{slot_id}?name={name_q}&phone={phone_q}&fee={fee_q}"
+        bot.reply_to(
+            message,
+            f"Doctor: {TEMP_BOOKING[chat_id].get('doc_name')}\n"
+            f"Consultation Fee: ₹{fee}\n"
+            f"💳 Please complete your payment here: {payment_url}"
+        )
+        user_state[chat_id] = "paid"
+        valid_options.pop(chat_id, None)
+        TEMP_BOOKING.pop(chat_id, None)
+        return
+    # --------- PATCH ENDS HERE ---------
+
+    # Otherwise, ask for 10-digit phone number as usual
     bot.reply_to(message, "Please enter your 10 digit phone number:" + NAV_HINT)
     user_state[chat_id] = "entering_phone"
+
 
 # --- entering_phone ---
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "entering_phone")
@@ -634,7 +678,7 @@ def handle_entering_phone(message):
             if existing and existing["payment_status"] == "contact_request":
                 bot.reply_to(
                     message,
-                    f"⚠️ This phone number ({text}) is currently blocked due to a pending reschedule/cancellation request.\n"
+                    f"⚠️ This phone number ({text}) is currently blocked due to a pending reschedule/cancellation request.\n\n Type '\book' to book an appointment for different Number"
                     "Please wait for our support team to contact you or use a different phone number."
                 )
                 do_stop(chat_id)  # reset flow
@@ -670,7 +714,7 @@ def handle_entering_phone(message):
 
     else:
         answer = get_rag_answer(chat_id, text)
-        bot.reply_to(message, f"💡 {answer}\nPlease enter a valid 10 digit number or type 'back'/'stop'.")
+        bot.reply_to(message, f"💡 {answer}\n\nPlease enter a valid 10 digit number or type 'back'/'stop'.")
 
 
 
@@ -681,7 +725,7 @@ def handle_entering_name(message):
     answer = get_rag_answer(chat_id, text)
     bot.reply_to(
         message,
-        f"💡 {answer}\nPlease type /book to book another appointment or type 'help' to cancel/reschedule appointments"
+        f"💡 {answer}\n\nPlease type /book to book another appointment or type 'help' to cancel/reschedule appointments"
     )
 
 
