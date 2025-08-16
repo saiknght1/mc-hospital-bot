@@ -87,3 +87,10 @@ To Book appointment type /book
 If any user message contains numbers or digits , you can ask them please enter valid details to move ahead
 
 Doctors Rosters are available for booking from 2025-08-19 to 2025-08-31 for now, slots for future dates will open soon
+
+Doctor fees for General Medicine consultation is ₹500 
+Doctor fees for Cardiology consultation is ₹750
+Doctor fees for Orthopedic consultation is ₹750
+Doctor fees for ENT consultation is ₹750
+
+
