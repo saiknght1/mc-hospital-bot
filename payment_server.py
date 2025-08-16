@@ -30,28 +30,149 @@ app = Flask(__name__)
 
 PAYMENT_HTML = """
 <!DOCTYPE html>
-<html>
-<head><title>Payment Page</title></head>
-<body style="font-family:Arial;text-align:center;">
-    <h2>Pay for Your Appointment</h2>
-    <p>Patient Name: {{ name }}</p>
-    <p>Phone: {{ phone }}</p>
-    <p>Doctor: {{ doctor }}</p>
-    <p>Date: {{ slot_date }}</p>
-    <p>Time: {{ slot_time }}</p>
-    <p>Consultation Fee: ₹{{ fees }}</p>
-    <form method="POST" action="/confirm_payment">
-        <input type="hidden" name="chat_id" value="{{ chat_id }}">
-        <input type="hidden" name="doctor_id" value="{{ doctor_id }}">
-        <input type="hidden" name="slot_id" value="{{ slot_id }}">
-        <input type="hidden" name="name" value="{{ name }}">
-        <input type="hidden" name="phone" value="{{ phone }}">
-        <input type="hidden" name="fees" value="{{ fees }}">
-        <button type="submit" style="padding:10px 20px;">Pay Now</button>
-    </form>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0; 
+            padding: 0;
+            background: #f9f9f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 420px;
+            text-align: center;
+        }
+        h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .info {
+            text-align: left;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        .info p {
+            margin: 6px 0;
+        }
+        .btn {
+            background: #007BFF;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 15px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Pay for Your Appointment</h2>
+        <div class="info">
+            <p><strong>Patient Name:</strong> {{ name }}</p>
+            <p><strong>Phone:</strong> {{ phone }}</p>
+            <p><strong>Doctor:</strong> {{ doctor }}</p>
+            <p><strong>Date:</strong> {{ slot_date }}</p>
+            <p><strong>Time:</strong> {{ slot_time }}</p>
+            <p><strong>Consultation Fee:</strong> ₹{{ fees }}</p>
+        </div>
+        <form method="POST" action="/confirm_payment">
+            <input type="hidden" name="chat_id" value="{{ chat_id }}">
+            <input type="hidden" name="doctor_id" value="{{ doctor_id }}">
+            <input type="hidden" name="slot_id" value="{{ slot_id }}">
+            <input type="hidden" name="name" value="{{ name }}">
+            <input type="hidden" name="phone" value="{{ phone }}">
+            <input type="hidden" name="fees" value="{{ fees }}">
+            <button type="submit" class="btn">💳 Pay Now</button>
+        </form>
+    </div>
 </body>
 </html>
 """
+
+SUCCESS_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Success</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0; 
+            padding: 0;
+            background: #f9f9f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .card {
+            background: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 420px;
+            text-align: center;
+        }
+        h2 {
+            color: #28a745;
+            margin-bottom: 15px;
+        }
+        p {
+            font-size: 16px;
+            margin: 8px 0;
+            color: #333;
+        }
+        .btn {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 12px 20px;
+            background: #007BFF;
+            color: white;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 16px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>✅ Payment Successful!</h2>
+        <p>Your appointment with <strong>Dr. {{ doctor }}</strong> is confirmed.</p>
+        <p><strong>Date:</strong> {{ slot_date }}</p>
+        <p><strong>Time:</strong> {{ slot_time }}</p>
+        <p>Paid: ₹{{ fees }}</p>
+        <a href="https://t.me/{{ bot_username }}" class="btn">Back to Bot</a>
+    </div>
+</body>
+</html>
+"""
+
+
 
 @app.route("/pay/<chat_id>/<doctor_id>/<slot_id>")
 def pay(chat_id, doctor_id, slot_id):
@@ -121,7 +242,6 @@ def confirm_payment():
                 return "❌ Doctor not found", 404
             doctor_name = doctor_row["name"]
 
-            # FIX: Correct placeholder count (7 columns = 7 placeholders)
             cur.execute("""
                 INSERT INTO bookings (user_id, doctor_id, slot_time, slot_date, payment_status, name, phone_no) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -138,7 +258,14 @@ def confirm_payment():
             f"Paid: ₹{fees}"
         )
 
-        return "<h3>Payment successful! You can close this page.</h3>"
+        return render_template_string(
+            SUCCESS_HTML,
+            doctor=doctor_name,
+            slot_date=slot_date,
+            slot_time=slot_time,
+            fees=fees,
+            bot_username=os.getenv("BOT_USERNAME")
+        )
 
     except Exception as e:
         print("[ERROR] /confirm_payment route failed:", e)
