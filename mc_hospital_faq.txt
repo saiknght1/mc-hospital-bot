@@ -85,3 +85,5 @@ MC Hospital is committed to providing you with the highest standards of healthca
 To Book appointment type /book
 
 If any user message contains numbers or digits , you can ask them please enter valid details to move ahead
+
+Doctors Rosters are available for booking from 2025-08-19 to 2025-08-31 for now, slots for future dates will open soon
