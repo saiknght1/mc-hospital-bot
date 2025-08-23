@@ -167,7 +167,8 @@ SUCCESS_HTML = """
         <p><strong>Date:</strong> {{ slot_date }}</p>
         <p><strong>Time:</strong> {{ slot_time }}</p>
         <p>Paid: ₹{{ fees }}</p>
-        <a href="https://t.me/mcbookaibot" class="btn">Back to Bot</a>
+        <a href="https://t.me/mcbookaibot?start=back" class="btn" target="_blank">Back to Bot</a>
+
     </div>
 </body>
 </html>
