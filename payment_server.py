@@ -16,6 +16,7 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
+
 def get_db_connection():
     return pymysql.connect(
         host=DB_HOST,
@@ -166,7 +167,7 @@ SUCCESS_HTML = """
         <p><strong>Date:</strong> {{ slot_date }}</p>
         <p><strong>Time:</strong> {{ slot_time }}</p>
         <p>Paid: ₹{{ fees }}</p>
-        <a href="https://t.me/{{ bot_username }}" class="btn">Back to Bot</a>
+        <a href="https://t.me/mcbookaibot" class="btn">Back to Bot</a>
     </div>
 </body>
 </html>
@@ -264,7 +265,6 @@ def confirm_payment():
             slot_date=slot_date,
             slot_time=slot_time,
             fees=fees,
-            bot_username=os.getenv("BOT_USERNAME")
         )
 
     except Exception as e:
